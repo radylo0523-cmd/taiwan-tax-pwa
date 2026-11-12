@@ -1,0 +1,231 @@
+
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1769aa">
+<title>全民繳稅管家</title>
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f1f5f9;color:#243247;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC",sans-serif}
+header{background:#1769aa;color:white;padding:24px 18px;text-align:center}
+h1{font-size:25px;margin:0 0 8px}
+header p{margin:0;font-size:14px}
+main{max-width:650px;margin:auto;padding:16px}
+.panel,.item{background:white;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px #0000000c}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.stat{text-align:center;background:#eaf3fc;border-radius:12px;padding:15px}
+.stat strong{font-size:23px;color:#1769aa}
+select,input,button{font:inherit;border-radius:9px;padding:11px;border:1px solid #ccd5df}
+input{width:100%;margin-top:7px}
+button{background:#1769aa;color:white;border:0;cursor:pointer}
+button.secondary{background:#e7edf4;color:#243247}
+.months{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:12px 0}
+.months button{padding:10px 4px;background:#e7edf4;color:#243247}
+.months button.active{background:#1769aa;color:white}
+.item h3{margin:0 0 6px;font-size:17px}
+.muted{color:#66788c;font-size:13px}
+.check{display:flex;align-items:center;gap:8px;margin:12px 0}
+.check input{width:20px;height:20px;margin:0}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.row>*{min-width:0}
+.full{width:100%;margin-top:10px}
+small{color:#66788c}
+</style>
+</head>
+<body>
+<header>
+<h1>🗓️ 全民繳稅管家</h1>
+<p>台灣全年繳稅提醒與確認表</p>
+</header>
+<main>
+<section class="panel">
+<div class="row">
+<strong>選擇年度</strong>
+<select id="year"></select>
+</div>
+<div class="stats" style="margin-top:15px">
+<div class="stat">已完成<br><strong id="progress">0/0</strong></div>
+<div class="stat">已記錄金額<br><strong id="total">0</strong></div>
+</div>
+<small>金額單位：新台幣元</small>
+</section>
+
+<section class="panel">
+<strong>月份查詢</strong>
+<div class="months" id="months"></div>
+</section>
+
+<section id="list"></section>
+
+<section class="panel">
+<h3>新增自訂繳費項目</h3>
+<input id="newName" placeholder="例如：其他稅費">
+<select id="newMonth" class="full"></select>
+<button class="full" onclick="addItem()">新增項目</button>
+</section>
+
+<section class="panel">
+<h3>資料備份</h3>
+<button class="full" onclick="exportData()">匯出 JSON 備份</button>
+<input type="file" id="importFile" accept=".json,application/json">
+<button class="secondary full" onclick="importData()">匯入備份</button>
+</section>
+
+<p class="muted">資料僅儲存在目前裝置的瀏覽器中。清除網站資料可能使紀錄消失，請定期備份。實際稅務期限以政府公告為準。</p>
+</main>
+
+<script>
+const base=[
+{id:"car",m:4,n:"使用牌照稅",d:"一般自用汽機車適用"},
+{id:"income",m:5,n:"綜合所得稅",d:"申報上一年度所得"},
+{id:"house",m:5,n:"房屋稅",d:"房屋納稅義務人適用"},
+{id:"road",m:7,n:"公路養管費（原汽燃費）",d:"一般自用汽車適用"},
+{id:"commercial",m:10,n:"營業用車下期牌照稅",d:"僅營業用車適用"},
+{id:"land",m:11,n:"地價稅",d:"土地納稅義務人適用"}
+];
+const key="taiwan-tax-manager-v1";
+let db={};
+try{db=JSON.parse(localStorage.getItem(key))||{}}catch(e){db={}}
+if(!db.records)db.records={};
+if(!db.custom)db.custom=[];
+let year=new Date().getFullYear();
+let month=0;
+const $=id=>document.getElementById(id);
+const save=()=>localStorage.setItem(key,JSON.stringify(db));
+const items=()=>[...base,...db.custom];
+const record=id=>{
+const k=year+"-"+id;
+return db.records[k]||(db.records[k]={paid:false,amount:""});
+};
+function setup(){
+for(let y=2025;y<=2035;y++){
+let o=document.createElement("option");
+o.value=y;o.textContent=y+" 年";
+$("year").append(o);
+}
+$("year").value=year;
+$("year").onchange=e=>{
+year=Number(e.target.value);render();
+};
+for(let m=1;m<=12;m++){
+let o=document.createElement("option");
+o.value=m;o.textContent=m+" 月";
+$("newMonth").append(o);
+}
+render();
+}
+function render(){
+const ms=$("months");
+ms.innerHTML="";
+for(let m=0;m<=12;m++){
+const b=document.createElement("button");
+b.textContent=m===0?"全年":m+"月";
+b.className=month===m?"active":"";
+b.onclick=()=>{month=m;render()};
+ms.append(b);
+}
+const list=$("list");
+list.innerHTML="";
+const selected=items().filter(x=>!month||x.m===month);
+if(!selected.length){
+const p=document.createElement("p");
+p.className="panel muted";
+p.textContent="本月沒有預設繳費項目。";
+list.append(p);
+}
+selected.sort((a,b)=>a.m-b.m).forEach(x=>{
+const r=record(x.id);
+const card=document.createElement("section");
+card.className="item";
+const h=document.createElement("h3");
+h.textContent=x.m+" 月｜"+x.n;
+const d=document.createElement("p");
+d.className="muted";d.textContent=x.d||"自訂項目";
+const label=document.createElement("label");
+label.className="check";
+const check=document.createElement("input");
+check.type="checkbox";check.checked=!!r.paid;
+check.onchange=()=>{
+r.paid=check.checked;save();updateStats();
+};
+label.append(check,document.createTextNode("已繳納 / 已完成"));
+const amount=document.createElement("input");
+amount.type="number";amount.min="0";amount.step="1";
+amount.placeholder="繳納金額（NT$）";
+amount.value=r.amount??"";
+amount.oninput=()=>{
+r.amount=amount.value;save();updateStats();
+};
+card.append(h,d,label,amount);
+if(x.custom){
+const del=document.createElement("button");
+del.className="secondary full";
+del.textContent="刪除此自訂項目";
+del.onclick=()=>{
+if(confirm("確定刪除？")){
+db.custom=db.custom.filter(z=>z.id!==x.id);
+save();render();
+}
+};
+card.append(del);
+}
+list.append(card);
+});
+updateStats();
+}
+function updateStats(){
+const all=items();
+let done=0,total=0;
+all.forEach(x=>{
+const r=record(x.id);
+if(r.paid)done++;
+total+=Number(r.amount)||0;
+});
+$("progress").textContent=done+"/"+all.length;
+$("total").textContent=total.toLocaleString("zh-TW");
+}
+function addItem(){
+const n=$("newName").value.trim();
+if(!n)return alert("請輸入項目名稱");
+db.custom.push({
+id:"custom-"+Date.now(),
+m:Number($("newMonth").value),
+n:n,d:"自訂項目",custom:true
+});
+$("newName").value="";
+save();render();
+}
+function exportData(){
+const blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"});
+const a=document.createElement("a");
+a.href=URL.createObjectURL(blob);
+a.download="tax-backup.json";
+a.click();
+setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+async function importData(){
+const f=$("importFile").files[0];
+if(!f)return alert("請先選擇備份檔案");
+try{
+const data=JSON.parse(await f.text());
+if(!data||typeof data!=="object"||
+!data.records||!Array.isArray(data.custom))
+throw Error("格式不正確");
+if(!confirm("匯入會覆蓋目前紀錄，確定繼續？"))return;
+db=data;save();render();alert("匯入成功");
+}catch(e){alert("匯入失敗："+e.message)}
+}
+setup();
+if("serviceWorker" in navigator){
+window.addEventListener("load",()=>{
+navigator.serviceWorker.register("./sw.js").catch(()=>{});
+});
+}
+</script>
+</body>
+</html>
+
+

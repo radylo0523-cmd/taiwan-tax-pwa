@@ -1,0 +1,19 @@
+
+{
+  "name": "全民繳稅管家",
+  "short_name": "繳稅管家",
+  "description": "台灣年度稅費確認表",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#1769aa",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
